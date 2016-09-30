@@ -16,7 +16,8 @@ public:
 	vector<VideoWriter> vws;
 	bool isSaving = false;
 	bool capimg = false;
-
+	CStatic *time_dura;
+	CEdit *edit_filename;
 // 对话框数据
 #ifdef AFX_DESIGN_TIME
 	enum { IDD = IDD_MFC_CAPTUREVIDEONEW_DIALOG };
@@ -28,7 +29,7 @@ public:
 // 实现
 protected:
 	HICON m_hIcon;
-
+	CFont font;
 	// 生成的消息映射函数
 	virtual BOOL OnInitDialog();
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
@@ -39,4 +40,7 @@ public:
 	afx_msg void OnBnClickedStart();
 	afx_msg void OnBnClickedStop();
 	afx_msg void OnBnClickedCap();
+	afx_msg void OnTimer(UINT_PTR nIDEvent);
+//	afx_msg HBRUSH OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor);
+	afx_msg void OnBnClickedButton2();
 };

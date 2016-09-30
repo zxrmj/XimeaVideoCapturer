@@ -73,6 +73,9 @@ BEGIN_MESSAGE_MAP(Cmfc_captureVideoNewDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_START, &Cmfc_captureVideoNewDlg::OnBnClickedStart)
 	ON_BN_CLICKED(IDC_STOP, &Cmfc_captureVideoNewDlg::OnBnClickedStop)
 	ON_BN_CLICKED(IDC_CAP, &Cmfc_captureVideoNewDlg::OnBnClickedCap)
+	ON_WM_TIMER()
+//	ON_WM_CTLCOLOR()
+ON_BN_CLICKED(IDC_BUTTON2, &Cmfc_captureVideoNewDlg::OnBnClickedButton2)
 END_MESSAGE_MAP()
 
 
@@ -92,16 +95,38 @@ void save(Cmfc_captureVideoNewDlg *dlg)
 	// Get number of camera devices
 	// 获取相机设备数量
 	DWORD dwNumberOfDevices = 0;
+	bool useSystemCam = false;
 	stat = xiGetNumberDevices(&dwNumberOfDevices);
+	VideoCapture vc;
 	if (stat != XI_OK)
 	{
-		return;
+		int nFlag = dlg->MessageBox(_T("获取相机失败，是否打开电脑摄像头"), 0, MB_YESNO);
+		if (nFlag)
+		{
+			useSystemCam = true;
+			vc.open(0);
+			goto CaptrueBegin;
+		}
+		else
+		{
+			return;
+		}
 	}
 	// Retrieving a handle to the camera device 
 	stat = xiOpenDevice(0, &xiH);
 	if (stat != XI_OK)
 	{
-		return;
+		int nFlag = dlg->MessageBox(_T("开启相机失败，是否打开电脑摄像头"), 0, MB_YESNO);
+		if (nFlag)
+		{
+			useSystemCam = true;
+			vc.open(0);
+			goto CaptrueBegin;
+		}
+		else
+		{
+			return;
+		}
 	}
 	// Setting "exposure" parameter (10ms=10000us)
 	stat = xiSetParamInt(xiH, XI_PRM_EXPOSURE, 5000);
@@ -119,27 +144,51 @@ void save(Cmfc_captureVideoNewDlg *dlg)
 	{
 		return;
 	}
+CaptrueBegin:
 	for (int images = 0; images < INT32_MAX; images++)
 	{
 		// getting image from camera
 		// 从摄像头获取图片
-		stat = xiGetImage(xiH, 5000, &image);
-		Mat dstImage(Size(image.width, image.height), CV_8UC3);
-		memcpy(dstImage.data, image.bp, image.width*image.height * 3);
-		imshow("Output", dstImage);
-		waitKey(30);
-		if (dlg->vws.size() >0 || dlg->isSaving == true)
+		if (!useSystemCam)
 		{
-			int idx = dlg->vws.size() - 1;
-			VideoWriter &vw = dlg->vws.at(idx);
-			vw << dstImage;
-			
+			stat = xiGetImage(xiH, 5000, &image);
+			Mat dstImage(Size(image.width, image.height), CV_8UC3);
+			memcpy(dstImage.data, image.bp, image.width*image.height * 3);
+			imshow("Output", dstImage);
+			waitKey(30);
+			if (dlg->vws.size() >0 || dlg->isSaving == true)
+			{
+				int idx = dlg->vws.size() - 1;
+				VideoWriter &vw = dlg->vws.at(idx);
+				vw << dstImage;
+
+			}
+			if (dlg->capimg == true)
+			{
+				imwrite("image" + to_string(images) + ".jpg", dstImage);
+				dlg->capimg = false;
+			}
 		}
-		if (dlg->capimg == true)
+		else
 		{
-			imwrite("image" + to_string(images) + ".jpg", dstImage);
-			dlg->capimg = false;
+			Mat dstImage;
+			vc >> dstImage;
+			imshow("Output", dstImage);
+			waitKey(30);
+			if (dlg->vws.size() >0 || dlg->isSaving == true)
+			{
+				int idx = dlg->vws.size() - 1;
+				VideoWriter &vw = dlg->vws.at(idx);
+				vw << dstImage;
+
+			}
+			if (dlg->capimg == true)
+			{
+				imwrite("image" + to_string(images) + ".jpg", dstImage);
+				dlg->capimg = false;
+			}
 		}
+		
 	}
 }
 // Cmfc_captureVideoNewDlg 消息处理程序
@@ -174,6 +223,10 @@ BOOL Cmfc_captureVideoNewDlg::OnInitDialog()
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 
 	// TODO: 在此添加额外的初始化代码
+	edit_filename = (CEdit*)GetDlgItem(IDC_EDIT1);
+	font.CreatePointFont(360, _T("宋体"));
+	time_dura = (CStatic*)GetDlgItem(IDC_DURA);
+	time_dura->SetFont(&font);
 	thread t1(save, this);
 	t1.detach();
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
@@ -211,7 +264,7 @@ void Cmfc_captureVideoNewDlg::OnPaint()
 		GetClientRect(&rect);
 		int x = (rect.Width() - cxIcon + 1) / 2;
 		int y = (rect.Height() - cyIcon + 1) / 2;
-
+		time_dura->SetFont(&font);
 		// 绘制图标
 		dc.DrawIcon(x, y, m_hIcon);
 	}
@@ -221,6 +274,7 @@ void Cmfc_captureVideoNewDlg::OnPaint()
 	}
 }
 
+
 //当用户拖动最小化窗口时系统调用此函数取得光标
 //显示。
 HCURSOR Cmfc_captureVideoNewDlg::OnQueryDragIcon()
@@ -228,6 +282,9 @@ HCURSOR Cmfc_captureVideoNewDlg::OnQueryDragIcon()
 	return static_cast<HCURSOR>(m_hIcon);
 }
 
+int sec = 0;
+int minu = 0;
+int hour = 0;
 
 void Cmfc_captureVideoNewDlg::OnBnClickedStart()
 {
@@ -236,14 +293,20 @@ void Cmfc_captureVideoNewDlg::OnBnClickedStart()
 	
 	VideoWriter vw;
 	time_t tm = time(0);
-	vw.open(".//11video" + to_string(vws.size()) + ".avi", CV_FOURCC('D', 'I', 'V', 'X'), 25.0, Size(1280, 1024), true);
+	CString cstr;
+	edit_filename->GetWindowTextW(cstr);
+	char *buf;
+	buf = (LPSTR)(LPCTSTR)cstr;
+	vw.open(buf + string("avi"), CV_FOURCC('D', 'I', 'V', 'X'), 25.0, Size(1280, 1024), true);
+	//vw.open(".//11video" + to_string(vws.size()) + ".avi", CV_FOURCC('D', 'I', 'V', 'X'), 25.0, Size(1280, 1024), true);
 	//vw.open(".//11video" + to_string(vws.size()) + ".mp4", CV_FOURCC('M', 'P', 'G', '4'), 25.0, Size(1280, 1024), true);
 	vws.push_back(vw);
 	isSaving = true;
 	GetDlgItem(IDC_START)->EnableWindow(false);
 	GetDlgItem(IDC_STOP)->EnableWindow(true);
+	SetTimer(0, 1000, NULL);
+	
 }
-
 
 void Cmfc_captureVideoNewDlg::OnBnClickedStop()
 {
@@ -253,6 +316,8 @@ void Cmfc_captureVideoNewDlg::OnBnClickedStop()
 	isSaving = false;
 	GetDlgItem(IDC_STOP)->EnableWindow(false);
 	GetDlgItem(IDC_START)->EnableWindow(true);
+	KillTimer(0);
+	hour = minu = sec = 0;
 }
 
 
@@ -260,4 +325,50 @@ void Cmfc_captureVideoNewDlg::OnBnClickedCap()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	capimg = true;
+}
+
+
+void Cmfc_captureVideoNewDlg::OnTimer(UINT_PTR nIDEvent)
+{
+	// TODO: 在此添加消息处理程序代码和/或调用默认值
+	if (nIDEvent == 0)
+	{
+		sec++;
+		if (sec == 60)
+		{
+			minu++;
+		}
+		if (minu == 60)
+		{
+			hour++;
+		}
+		CString str;
+		str.Format(_T("%d:%d:%d"), hour, minu, sec);
+		time_dura->SetWindowTextW(str);
+	}
+	CDialogEx::OnTimer(nIDEvent);
+}
+
+
+
+//HBRUSH Cmfc_captureVideoNewDlg::OnCtlColor(CDC* pDC, CWnd* pWnd, UINT nCtlColor)
+//{
+//	HBRUSH hbr = CDialogEx::OnCtlColor(pDC, pWnd, nCtlColor);
+//
+//	// TODO:  在此更改 DC 的任何特性
+//
+//	// TODO:  如果默认的不是所需画笔，则返回另一个画笔
+//	return hbr;
+//}
+
+
+void Cmfc_captureVideoNewDlg::OnBnClickedButton2()
+{
+	// TODO: 在此添加控件通知处理程序代码
+	time_t tm = time(0);
+	char tmp[64];
+	strftime(tmp, sizeof(tmp), "video_%y_%m_%d_%H_%M_%S.avi", localtime(&tm));
+	CString cstr;
+	cstr.Format(L"%s", CStringW(tmp));
+	edit_filename->SetWindowTextW(cstr);
 }
